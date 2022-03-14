@@ -11,6 +11,7 @@ OBJS = cstore.pb-c.o cstore_fdw.o cstore_writer.o cstore_reader.o \
        cstore_metadata_serialization.o vectorized_aggregates.o \
        vectorized_transition_functions.o
 
+
 EXTENSION = cstore_fdw
 DATA = cstore_fdw--1.1.sql cstore_fdw--1.0--1.1.sql
 
