@@ -22,20 +22,27 @@
 
 /* Function declarations for metadata serialization */
 extern StringInfo SerializePostScript(uint64 tableFooterLength);
+
 extern StringInfo SerializeTableFooter(TableFooter *tableFooter);
+
 extern StringInfo SerializeStripeFooter(StripeFooter *stripeFooter);
+
 extern StringInfo SerializeColumnSkipList(ColumnBlockSkipNode *blockSkipNodeArray,
-										  uint32 blockCount, bool typeByValue,
-										  int typeLength);
+                                          uint32 blockCount, bool typeByValue,
+                                          int typeLength);
 
 /* Function declarations for metadata deserialization */
 extern void DeserializePostScript(StringInfo buffer, uint64 *tableFooterLength);
-extern TableFooter * DeserializeTableFooter(StringInfo buffer);
+
+extern TableFooter *DeserializeTableFooter(StringInfo buffer);
+
 extern uint32 DeserializeBlockCount(StringInfo buffer);
-extern StripeFooter * DeserializeStripeFooter(StringInfo buffer);
-extern ColumnBlockSkipNode * DeserializeColumnSkipList(StringInfo buffer,
-													   bool typeByValue, int typeLength,
-													   uint32 blockCount);
+
+extern StripeFooter *DeserializeStripeFooter(StringInfo buffer);
+
+extern ColumnBlockSkipNode *DeserializeColumnSkipList(StringInfo buffer,
+                                                      bool typeByValue, int typeLength,
+                                                      uint32 blockCount);
 
 
 #endif   /* CSTORE_SERIALIZATION_H */ 

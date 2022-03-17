@@ -4,18 +4,20 @@
 \echo Use "ALTER EXTENSION cstore_fdw UPDATE TO '1.1'" to load this file. \quit
 
 CREATE FUNCTION cstore_ddl_event_end_trigger()
-RETURNS event_trigger
-AS 'MODULE_PATHNAME'
-LANGUAGE C STRICT;
+    RETURNS event_trigger
+AS
+'MODULE_PATHNAME'
+    LANGUAGE C STRICT;
 
 CREATE EVENT TRIGGER cstore_ddl_event_end
-ON ddl_command_end
+    ON ddl_command_end
 EXECUTE PROCEDURE cstore_ddl_event_end_trigger();
 
 CREATE FUNCTION cstore_table_size(relation regclass)
-RETURNS bigint
-AS 'MODULE_PATHNAME'
-LANGUAGE C STRICT;
+    RETURNS bigint
+AS
+'MODULE_PATHNAME'
+    LANGUAGE C STRICT;
 
 -- cstore_fdw creates directories to store files for tables with automatically
 -- determined filename during the CREATE SERVER statement. Since this feature

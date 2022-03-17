@@ -6,7 +6,7 @@
 
 
 extern void vectorized_ExecutorRun(QueryDesc *queryDesc,
-					 ScanDirection direction, long count);
+                                   ScanDirection direction, long count);
 
 extern TupleTableSlot *ExecProcNodeVectorized(PlanState *node);
 

@@ -4,7 +4,10 @@
 
 CREATE FOREIGN TABLE empty_table (a int) SERVER cstore_server;
 CREATE FOREIGN TABLE table_with_data (a int) SERVER cstore_server;
-CREATE TABLE non_cstore_table (a int);
+CREATE TABLE non_cstore_table
+(
+    a int
+);
 
 COPY table_with_data FROM STDIN;
 1

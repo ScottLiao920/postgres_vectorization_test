@@ -43,7 +43,7 @@ message PostScript {
   optional uint64 tableFooterLength = 1;
   optional uint64 versionMajor = 2;
   optional uint64 versionMinor = 3;
-  
+
   // Leave this last in the record
   optional string magicNumber = 8000;
 }
