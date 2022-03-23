@@ -5,7 +5,16 @@
 
 MODULE_big = cstore_fdw
 
-PG_CPPFLAGS = --std=c99
+SDK_INSTALL_PATH := /opt/intel/sgxsdk
+SGX_INCLUDE_PATH := $(SDK_INSTALL_PATH)/include
+UNTRUSTED_DIR=untrusted
+INTERFACE_DIR=untrusted/interface
+EXTENSION_DIR=untrusted/extensions
+LZ4_DIR=untrusted/lz4
+
+PG_CPPFLAGS := -o0 --std=c99 \
+	$(addprefix -I$(CURDIR)/../../, include $(UNTRUSTED_DIR) $(CSTORE_DIR) $(LZ4_DIR)/lib) \
+	-I$(SGX_INCLUDE_PATH)
 SHLIB_LINK = -lprotobuf-c
 OBJS = cstore.pb-c.o cstore_fdw.o cstore_writer.o cstore_reader.o \
        cstore_metadata_serialization.o vectorized_aggregates.o \

@@ -242,9 +242,10 @@ CStoreWriteRow(TableWriteState *writeState, Datum *columnValues, bool *columnNul
                                                              columnTypeByValue,
                                                              columnTypeLength);
 
-            UpdateBlockSkipNodeMinMax(blockSkipNode, columnValues[columnIndex],
-                                      columnTypeByValue, columnTypeLength,
-                                      columnCollation, comparisonFunction);
+            // commented this line to avoid compare enc_int4 type with plain int type during reading from plain data file
+//            UpdateBlockSkipNodeMinMax(blockSkipNode, columnValues[columnIndex],
+//            columnTypeByValue, columnTypeLength,
+//                    columnCollation, comparisonFunction);
         }
 
         blockSkipNode->rowCount++;
@@ -488,25 +489,64 @@ FlushStripe(TableWriteState *writeState) {
             }
 
             /* the only other supported compression type is pg_lz for now */
-            Assert(compressionType == COMPRESSION_PG_LZ);
-
+            Assert((compressionType == COMPRESSION_PG_LZ) || (compressionType == COMPRESSION_LZ4) ||
+                   compressionType == COMPRESSION_ENC_LZ4);
             valueBuffer = valueBufferArray[columnIndex][blockIndex];
-            maximumLength = PGLZ_MAX_OUTPUT(valueBuffer->len);
-            compressedData = palloc0(maximumLength);
-            compressable = pglz_compress((const char *) valueBuffer->data,
-                                         valueBuffer->len, compressedData,
-                                         PGLZ_strategy_always);
-            if (compressable) {
-                pfree(valueBuffer->data);
+            if (compressionType == COMPRESSION_PG_LZ) {
+                maximumLength = PGLZ_MAX_OUTPUT(valueBuffer->len);
+                compressedData = palloc0(maximumLength);
+                compressable = pglz_compress((const char *) valueBuffer->data,
+                                             valueBuffer->len, compressedData,
+                                             PGLZ_strategy_always);
+                if (compressable) {
+                    pfree(valueBuffer->data);
 
-                valueBuffer->data = (char *) compressedData;
-                valueBuffer->len = VARSIZE(compressedData);
-                valueBuffer->maxlen = maximumLength;
+                    valueBuffer->data = (char *) compressedData;
+                    valueBuffer->len = VARSIZE(compressedData);
+                    valueBuffer->maxlen = maximumLength;
 
-                blockCompressionTypeArray[blockIndex] = COMPRESSION_PG_LZ;
-            } else {
-                pfree(compressedData);
-                blockCompressionTypeArray[blockIndex] = COMPRESSION_NONE;
+                    blockCompressionTypeArray[blockIndex] = COMPRESSION_PG_LZ;
+                } else {
+                    pfree(compressedData);
+                    blockCompressionTypeArray[blockIndex] = COMPRESSION_NONE;
+                }
+            } else if (compressionType == COMPRESSION_LZ4) {
+                int compressed_bytes = 0; // for lz4 compression
+                size_t maximumLength = LZ4_compressBound(valueBuffer->len) + CSTORE_COMPRESS_HDRSZ_LZ4;
+                compressedData = palloc0(maximumLength);
+                Assert(outputBuffer->maxlen >= min_src_len);
+                compressed_bytes = LZ4_compress_default(valueBuffer->data,
+                                                        CSTORE_COMPRESS_RAWDATA_LZ4(compressedData),
+                                                        valueBuffer->len,
+                                                        maximumLength);
+                if (compressed_bytes > 0) {
+                    CSTORE_COMPRESS_SET_RAWSIZE_LZ4(compressedData, valueBuffer->len);
+                    ((LZ4CompressHeader *) compressedData)->comp_len = compressed_bytes;
+                    pfree(valueBuffer->data);
+                    valueBuffer->data = (char *) compressedData;
+                    valueBuffer->len = compressed_bytes + CSTORE_COMPRESS_HDRSZ_LZ4;
+                    valueBuffer->maxlen = maximumLength;
+                    blockCompressionTypeArray[blockIndex] = COMPRESSION_LZ4;
+                } else {
+                    pfree(compressedData);
+                    blockCompressionTypeArray[blockIndex] = COMPRESSION_NONE;
+                }
+            } else if (compressionType == COMPRESSION_ENC_LZ4) {
+                int enc_len = 0, resp = 0; // for lz4 compression
+                compressedData = palloc0(valueBuffer->maxlen);
+                resp = enc_text_compress_n_encrypt(valueBuffer->data, valueBuffer->len, compressedData);
+                enc_len = (resp >> 4);
+                resp -= (enc_len << 4);
+                sgxErrorHandler(resp);
+                if (enc_len > 0) {
+                    pfree(valueBuffer->data);
+                    valueBuffer->data = (char *) compressedData;
+                    valueBuffer->len = enc_len;
+                    blockCompressionTypeArray[blockIndex] = COMPRESSION_ENC_LZ4;
+                } else {
+                    pfree(compressedData);
+                    blockCompressionTypeArray[blockIndex] = COMPRESSION_NONE;
+                }
             }
         }
     }

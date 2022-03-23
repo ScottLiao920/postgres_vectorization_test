@@ -117,7 +117,7 @@ static int CStoreAcquireSampleRows(Relation relation, int logLevel,
 
 
 /* declarations for dynamic loading */
-PG_MODULE_MAGIC;
+//PG_MODULE_MAGIC;
 
 PG_FUNCTION_INFO_V1(cstore_ddl_event_end_trigger);
 
@@ -858,6 +858,11 @@ ParseCompressionType(const char *compressionTypeString) {
         compressionType = COMPRESSION_NONE;
     } else if (strncmp(compressionTypeString, COMPRESSION_STRING_PG_LZ, NAMEDATALEN) == 0) {
         compressionType = COMPRESSION_PG_LZ;
+    } else if (strncmp(compressionTypeString, COMPRESSION_STRING_LZ4, NAMEDATALEN) == 0) {
+        compressionType = COMPRESSION_LZ4;
+    }
+    else if (strncmp(compressionTypeString, COMPRESSION_STRING_ENC_LZ4, NAMEDATALEN) == 0) {
+        compressionType = COMPRESSION_ENC_LZ4;
     }
 
     return compressionType;

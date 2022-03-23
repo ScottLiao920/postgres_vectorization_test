@@ -960,6 +960,8 @@ ReadFromFile(FILE *file, uint64 offset, uint32 size) {
 static StringInfo
 DecompressBuffer(StringInfo buffer, CompressionType compressionType) {
     StringInfo decompressedBuffer = NULL;
+    Assert(compressionType == COMPRESSION_NONE || compressionType == COMPRESSION_PG_LZ ||
+           compressionType == COMPRESSION_LZ4);
 
     if (compressionType == COMPRESSION_NONE) {
         /* in case of no compression, return buffer */
@@ -983,8 +985,45 @@ DecompressBuffer(StringInfo buffer, CompressionType compressionType) {
         decompressedBuffer->data = decompressedData;
         decompressedBuffer->len = decompressedDataSize;
         decompressedBuffer->maxlen = decompressedDataSize;
+    } else if (compressionType == COMPRESSION_LZ4) {
+        size_t compressedDataSize = ((LZ4CompressHeader *) (buffer->data))->comp_len;
+        int decompressedDataSize_expected = (int) CSTORE_COMPRESS_RAWSIZE_LZ4(buffer->data);
+        int decompressedDataSize_real = 0;
+        char *decompressedData = NULL;
+        if (compressedDataSize + CSTORE_COMPRESS_HDRSZ_LZ4 != buffer->len) {
+            ereport(ERROR, (errmsg("cannot decompress the buffer"),
+                    errdetail("Expected %u bytes, but received %u bytes",
+                              buffer->len, compressedDataSize + CSTORE_COMPRESS_HDRSZ_LZ4)));
+        }
+        decompressedData = palloc0(decompressedDataSize_expected);
+        decompressedDataSize_real = LZ4_decompress_safe(CSTORE_COMPRESS_RAWDATA_LZ4(buffer->data), decompressedData,
+                                                        compressedDataSize,
+                                                        decompressedDataSize_expected);
+        if (decompressedDataSize_real < 0) {
+            ereport(ERROR, (errmsg("lz4 cannot decompress the buffer, malformed source string"),
+                    errdetail("Expected %zu bytes, but received %u bytes",
+                              compressedDataSize, buffer->len)));
+        }
+        decompressedBuffer = palloc0(sizeof(StringInfoData));
+        decompressedBuffer->data = decompressedData;
+        decompressedBuffer->len = decompressedDataSize_real;
+        decompressedBuffer->maxlen = decompressedDataSize_real;
+    } else if (compressionType == COMPRESSION_ENC_LZ4) {
+        char * decompressedData = palloc0(buffer->maxlen);
+        int resp, dec_len;
+        resp = enc_text_decrypt_n_decompress(buffer->data, buffer->len, decompressedData);
+        dec_len = (resp >> 4);
+        resp -= (dec_len << 4);
+        sgxErrorHandler(resp);
+        if (dec_len > 0){
+            buffer->len = dec_len;
+            decompressedBuffer = palloc0(sizeof(StringInfoData));
+            decompressedBuffer->data = decompressedData;
+            decompressedBuffer->len = dec_len;
+            decompressedBuffer->maxlen = dec_len;
+        }
+
     }
-    Assert(compressionType == COMPRESSION_NONE || compressionType == COMPRESSION_PG_LZ);
 
     return decompressedBuffer;
 }

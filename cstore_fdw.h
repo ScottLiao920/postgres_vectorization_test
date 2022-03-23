@@ -19,6 +19,9 @@
 #include "catalog/pg_foreign_server.h"
 #include "catalog/pg_foreign_table.h"
 #include "lib/stringinfo.h"
+#include "lz4.h"
+#include "untrusted/extensions/stdafx.h"
+#include "untrusted/interface/interface.h"
 
 
 /* Defines for valid option names */
@@ -41,7 +44,9 @@
 /* String representations of compression types */
 #define COMPRESSION_STRING_NONE "none"
 #define COMPRESSION_STRING_PG_LZ "pglz"
-#define COMPRESSION_STRING_DELIMITED_LIST "none, pglz"
+#define COMPRESSION_STRING_LZ4 "lz4"
+#define COMPRESSION_STRING_ENC_LZ4 "enc_lz4"
+#define COMPRESSION_STRING_DELIMITED_LIST "none, pglz, lz4, enc_lz4"
 
 /* CStore file signature */
 #define CSTORE_MAGIC_NUMBER "citus_cstore"
@@ -86,10 +91,21 @@ typedef enum {
     COMPRESSION_TYPE_INVALID = -1,
     COMPRESSION_NONE = 0,
     COMPRESSION_PG_LZ = 1,
+    COMPRESSION_LZ4 = 2,
+    COMPRESSION_ENC_LZ4 = 3,
 
     COMPRESSION_COUNT
 
 } CompressionType;
+
+typedef struct LZ4CompressHeader {
+    size_t src_len; // original string length
+    size_t comp_len; // length of compressed string
+} LZ4CompressHeader;
+#define CSTORE_COMPRESS_HDRSZ_LZ4       (sizeof(LZ4CompressHeader))
+#define CSTORE_COMPRESS_RAWSIZE_LZ4(ptr) (((LZ4CompressHeader *) (ptr))->src_len)
+#define CSTORE_COMPRESS_RAWDATA_LZ4(ptr) (((char *) (ptr)) + CSTORE_COMPRESS_HDRSZ_LZ4)
+#define CSTORE_COMPRESS_SET_RAWSIZE_LZ4(ptr, len) (((LZ4CompressHeader *) (ptr))->src_len = (len))
 
 
 /*
