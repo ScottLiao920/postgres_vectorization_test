@@ -534,15 +534,27 @@ FlushStripe(TableWriteState *writeState) {
             } else if (compressionType == COMPRESSION_ENC_LZ4) {
                 int enc_len = 0, resp = 0; // for lz4 compression
                 compressedData = palloc0(valueBuffer->maxlen);
-                resp = enc_text_compress_n_encrypt(valueBuffer->data, valueBuffer->len, compressedData);
-                enc_len = (resp >> 4);
-                resp -= (enc_len << 4);
+                BYTE *tmpPtr = palloc0(sizeof(BYTE));
+                int actualCompressionType = compressionType;
+                if (FromBase64Fast_C((const BYTE *) valueBuffer->data, ENC_INT32_LENGTH_B64 - 1,
+                                     tmpPtr, ENC_INT32_LENGTH) != 0) {
+                    // feeding plain data into encrypted column
+                    resp = enc_text_compress_n_encrypt(valueBuffer->data, valueBuffer->len, compressedData);
+                    enc_len = (resp >> 4);
+                    resp -= (enc_len << 4);
+                } else {
+                    // feeding encrypted data, no point to compress them
+                    memcpy(compressedData, valueBuffer->data, valueBuffer->len);
+                    enc_len = valueBuffer->len;
+                    resp = 0;
+                    actualCompressionType = COMPRESSION_ENC_NONE; // only encrypted
+                }
                 sgxErrorHandler(resp);
                 if (enc_len > 0) {
                     pfree(valueBuffer->data);
                     valueBuffer->data = (char *) compressedData;
                     valueBuffer->len = enc_len;
-                    blockCompressionTypeArray[blockIndex] = COMPRESSION_ENC_LZ4;
+                    blockCompressionTypeArray[blockIndex] = actualCompressionType;
                 } else {
                     pfree(compressedData);
                     blockCompressionTypeArray[blockIndex] = COMPRESSION_NONE;

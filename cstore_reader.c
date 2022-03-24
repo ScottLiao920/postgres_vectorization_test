@@ -1009,20 +1009,37 @@ DecompressBuffer(StringInfo buffer, CompressionType compressionType) {
         decompressedBuffer->len = decompressedDataSize_real;
         decompressedBuffer->maxlen = decompressedDataSize_real;
     } else if (compressionType == COMPRESSION_ENC_LZ4) {
-        char * decompressedData = palloc0(buffer->maxlen);
+        char *decompressedData = palloc0(buffer->maxlen);
         int resp, dec_len;
         resp = enc_text_decrypt_n_decompress(buffer->data, buffer->len, decompressedData);
         dec_len = (resp >> 4);
         resp -= (dec_len << 4);
         sgxErrorHandler(resp);
-        if (dec_len > 0){
+        if (dec_len > 0) {
             buffer->len = dec_len;
             decompressedBuffer = palloc0(sizeof(StringInfoData));
-            decompressedBuffer->data = decompressedData;
+            decompressedBuffer->data = palloc0(sizeof(char) * dec_len);
+            memcpy(decompressedBuffer->data, decompressedData, dec_len);
             decompressedBuffer->len = dec_len;
             decompressedBuffer->maxlen = dec_len;
+            pfree(decompressedData);
         }
-
+    } else if (compressionType == COMPRESSION_ENC_NONE) {
+        char *decompressedData = palloc0(buffer->maxlen);
+        int resp, dec_len;
+        resp = enc_text_decrypt(buffer->data, buffer->len, decompressedData, buffer->maxlen);
+        dec_len = (resp >> 4);
+        resp -= (dec_len << 4);
+        sgxErrorHandler(resp);
+        if (dec_len > 0) {
+            buffer->len = dec_len;
+            decompressedBuffer = palloc0(sizeof(StringInfoData));
+            decompressedBuffer->data = palloc0(sizeof(char) * dec_len);
+            memcpy(decompressedBuffer->data, decompressedData, dec_len);
+            decompressedBuffer->len = dec_len;
+            decompressedBuffer->maxlen = dec_len;
+            pfree(decompressedData);
+        }
     }
 
     return decompressedBuffer;

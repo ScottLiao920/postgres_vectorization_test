@@ -22,6 +22,7 @@
 #include "lz4.h"
 #include "untrusted/extensions/stdafx.h"
 #include "untrusted/interface/interface.h"
+#include <tools/base64.hpp>
 
 
 /* Defines for valid option names */
@@ -93,6 +94,7 @@ typedef enum {
     COMPRESSION_PG_LZ = 1,
     COMPRESSION_LZ4 = 2,
     COMPRESSION_ENC_LZ4 = 3,
+    COMPRESSION_ENC_NONE = 4,
 
     COMPRESSION_COUNT
 
