@@ -480,7 +480,7 @@ FlushStripe(TableWriteState *writeState) {
         for (blockIndex = 0; blockIndex < blockCount; blockIndex++) {
             StringInfo valueBuffer = NULL;
             uint64 maximumLength = 0;
-            PGLZ_Header *compressedData = NULL;
+            char *compressedData = NULL;
             bool compressable = false;
 
             if (compressionType == COMPRESSION_NONE) {
@@ -496,7 +496,7 @@ FlushStripe(TableWriteState *writeState) {
                 maximumLength = PGLZ_MAX_OUTPUT(valueBuffer->len);
                 compressedData = palloc0(maximumLength);
                 compressable = pglz_compress((const char *) valueBuffer->data,
-                                             valueBuffer->len, compressedData,
+                                             valueBuffer->len, (PGLZ_Header *) compressedData,
                                              PGLZ_strategy_always);
                 if (compressable) {
                     pfree(valueBuffer->data);
@@ -537,9 +537,9 @@ FlushStripe(TableWriteState *writeState) {
                 BYTE *tmpPtr = palloc0(sizeof(BYTE));
                 int actualCompressionType = compressionType;
                 if (FromBase64Fast_C((const BYTE *) valueBuffer->data, ENC_INT32_LENGTH_B64 - 1,
-                                     tmpPtr, ENC_INT32_LENGTH) != 0) {
+                                     tmpPtr, ENC_INT32_LENGTH) == 0) {
                     // feeding plain data into encrypted column
-                    resp = enc_text_compress_n_encrypt(valueBuffer->data, valueBuffer->len, compressedData);
+                    resp = enc_text_compress_n_encrypt(valueBuffer->data, valueBuffer->len, (char *) compressedData);
                     enc_len = (resp >> 4);
                     resp -= (enc_len << 4);
                 } else {

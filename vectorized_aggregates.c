@@ -23,6 +23,7 @@
 #include "optimizer/tlist.h"
 #include "parser/parse_agg.h"
 #include "parser/parse_coerce.h"
+#include <parser/parse_type.h>
 #include "parser/parsetree.h"
 #include "storage/bufmgr.h"
 #include "storage/lmgr.h"
@@ -1318,9 +1319,14 @@ advance_aggregates_vectorized(AggState *aggstate, AggStatePerGroup pergroup) {
 
         /* simple check to handle count(*) */
         int simpleColumnCount = peraggstate->evalproj->pi_numSimpleVars;
+        char *typeName;
+        int columnIndex;
         if (simpleColumnCount >= 1) {
-            int columnIndex = peraggstate->evalproj->pi_varNumbers[0] - 1;
+            columnIndex = peraggstate->evalproj->pi_varNumbers[0] - 1;
             columnData = stripeData->columnDataArray[columnIndex];
+            Type columnType = typeidType(readState->tupleDescriptor->attrs[columnIndex]->atttypid);
+            typeName = typeTypeName(columnType);
+            ReleaseSysCache(columnType);
         }
 
         /*
@@ -1343,10 +1349,39 @@ advance_aggregates_vectorized(AggState *aggstate, AggStatePerGroup pergroup) {
             Oid functionOid = vectorTransitionFuncList->oid;
             fmgr_info(functionOid, &peraggstate->transfn);
         }
+        if (strncmp("enc_", typeName, 4) == 0) {
+            Type datumType = typeidType(readState->tupleDescriptor->attrs[columnIndex]->atttypid);
+            ArrayType *array = construct_empty_array(typeTypeId(datumType));
+            for (uint i = 0; i < rowCount; i++) {
+                // if it's an encrypted data type, no need array_append alr, just use the value array
+                int blockIndex = i / blockRowCount;
+                int rowIndex = i % blockRowCount;
+                int arrIndex = (int) i;
+                array = array_set(array, 1, &arrIndex, columnData->blockDataArray[blockIndex]->valueArray[rowIndex], 0,
+                                  -1, typeLen(datumType), typeByVal(datumType),
+                                  ((Form_pg_type) GETSTRUCT(datumType))->typalign);
+            }
+            ReleaseSysCache(datumType);
+//            ArrayIterator arrIt = array_create_iterator(array, 0);
+//            Datum value;
+//            bool isNull;
+//            while (array_iterate(arrIt, &value, &isNull)) {
+//                char *data = DatumGetCString(value);
+//            };
+            fcinfo.arg[0] = PointerGetDatum(array);
+            fcinfo.argnull[0] = 0;
+        } else {
+            fcinfo.arg[1] = PointerGetDatum(columnData);
+            fcinfo.arg[2] = PointerGetDatum(&rowCount);
+            fcinfo.arg[3] = PointerGetDatum(&blockRowCount);
+        }
 
-        fcinfo.arg[1] = PointerGetDatum(columnData);
-        fcinfo.arg[2] = PointerGetDatum(&rowCount);
-        fcinfo.arg[3] = PointerGetDatum(&blockRowCount);
+//        ArrayIterator arrIt = array_create_iterator((ArrayType *) fcinfo.arg[0], 0);
+//        Datum value;
+//        bool isNull;
+//        while (array_iterate(arrIt, &value, &isNull)) {
+//            char *data = DatumGetCString(value);
+//        };
 
         /* we can apply the transition function immediately */
         advance_transition_function_vectorized(aggstate, peraggstate,
@@ -1374,9 +1409,16 @@ advance_transition_function_vectorized(AggState *aggstate, AggStatePerAgg peragg
     /* OK to call the transition function */
     InitFunctionCallInfoData(*fcinfo, &(peraggstate->transfn), numArguments + 1,
                              peraggstate->aggCollation, (void *) aggstate, NULL);
-    fcinfo->arg[0] = pergroupstate->transValue;
-    fcinfo->argnull[0] = pergroupstate->transValueIsNull;
-    newVal = FunctionCallInvoke(fcinfo);
+    if (fcinfo->argnull[0] != 0) {
+        fcinfo->arg[0] = pergroupstate->transValue;
+        fcinfo->argnull[0] = pergroupstate->transValueIsNull;
+        newVal = FunctionCallInvoke(fcinfo);
+    } else {
+        // already in array format
+        newVal = fcinfo->arg[0];
+    }
+
+    // for enc types, it's calling the sfunc defined in create aggregate, hence its args should be array & datums
 
     /*
      * If pass-by-ref datatype, must copy the new value into aggcontext and
