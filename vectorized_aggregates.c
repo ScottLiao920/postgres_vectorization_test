@@ -638,6 +638,8 @@ finalize_aggregate(AggState *aggstate,
                                  (void *) aggstate, NULL);
         fcinfo.arg[0] = pergroupstate->transValue;
         fcinfo.argnull[0] = pergroupstate->transValueIsNull;
+        char *data = DatumGetCString(fcinfo.arg[0]);
+        int dataLen = strlen(data);
         if (fcinfo.flinfo->fn_strict && pergroupstate->transValueIsNull) {
             /* don't call a strict function with NULL inputs */
             *resultVal = (Datum) 0;
@@ -1335,53 +1337,65 @@ advance_aggregates_vectorized(AggState *aggstate, AggStatePerGroup pergroup) {
          * merely syntactic sugar. Note that we rely on a naming convention here,
          * where vectorized function names are regular function names with _vec
          * appended to them.
+         * ps by scott: also check whether there is plain data from encrypted column
+         * here, if so, manually update the transfn_oid and finalfn_oid
          */
         transitionFuncName = get_func_name(peraggstate->transfn_oid);
         snprintf(vectorTransitionFuncName, NAMEDATALEN, "%s_vec", transitionFuncName);
 
-        qualVectorTransitionFuncName =
-                stringToQualifiedNameList(vectorTransitionFuncName);
-        vectorTransitionFuncList = FuncnameGetCandidates(qualVectorTransitionFuncName,
-                                                         argumentCount, NIL,
-                                                         false, false);
-
-        if (vectorTransitionFuncList != NULL) {
-            Oid functionOid = vectorTransitionFuncList->oid;
-            fmgr_info(functionOid, &peraggstate->transfn);
-        }
         if (strncmp("enc_", typeName, 4) == 0) {
             Type datumType = typeidType(readState->tupleDescriptor->attrs[columnIndex]->atttypid);
-            ArrayType *array = construct_empty_array(typeTypeId(datumType));
-            for (uint i = 0; i < rowCount; i++) {
-                // if it's an encrypted data type, no need array_append alr, just use the value array
-                int blockIndex = i / blockRowCount;
-                int rowIndex = i % blockRowCount;
-                int arrIndex = (int) i;
-                array = array_set(array, 1, &arrIndex, columnData->blockDataArray[blockIndex]->valueArray[rowIndex], 0,
-                                  -1, typeLen(datumType), typeByVal(datumType),
-                                  ((Form_pg_type) GETSTRUCT(datumType))->typalign);
+            char *data = DatumGetCString(columnData->blockDataArray[0]->valueArray[0]);
+            size_t dataLen = strlen(data);
+            // compare with ENC_INT32_LENGTH_B64 - 1 here because strlen doesn't count null terminator
+            if (dataLen == ENC_INT32_LENGTH_B64 - 1) {
+                ArrayType *array = construct_empty_array(typeTypeId(datumType));
+                for (uint i = 0; i < rowCount; i++) {
+                    // if it's an encrypted data type, no need array_append alr, just use the value array
+                    int blockIndex = i / blockRowCount;
+                    int rowIndex = i % blockRowCount;
+                    int arrIndex = (int) i;
+                    array = array_set(array, 1, &arrIndex, columnData->blockDataArray[blockIndex]->valueArray[rowIndex],
+                                      0,
+                                      -1, typeLen(datumType), typeByVal(datumType),
+                                      ((Form_pg_type) GETSTRUCT(datumType))->typalign);
+                }
+                fcinfo.arg[0] = PointerGetDatum(array);
+                fcinfo.argnull[0] = 0;
+            } else {
+                // plain data from an encrypted column, manually set the transfn_oid and finalfn_oid
+                qualVectorTransitionFuncName =
+                        stringToQualifiedNameList("enc_int4_sum_vec");
+                vectorTransitionFuncList = FuncnameGetCandidates(qualVectorTransitionFuncName,
+                                                                 argumentCount, NIL,
+                                                                 false, false);
+                Oid functionOid = vectorTransitionFuncList->oid;
+                fmgr_info(functionOid, &peraggstate->transfn);
+                peraggstate->finalfn.fn_oid = InvalidOid;
+                peraggstate->finalfn_oid = InvalidOid;
+                peraggstate->finalfn.fn_extra = NULL;
+                peraggstate->finalfn.fn_mcxt = CurrentMemoryContext;
+                peraggstate->finalfn.fn_expr = NULL;
             }
             ReleaseSysCache(datumType);
-//            ArrayIterator arrIt = array_create_iterator(array, 0);
-//            Datum value;
-//            bool isNull;
-//            while (array_iterate(arrIt, &value, &isNull)) {
-//                char *data = DatumGetCString(value);
-//            };
-            fcinfo.arg[0] = PointerGetDatum(array);
-            fcinfo.argnull[0] = 0;
         } else {
+            qualVectorTransitionFuncName =
+                    stringToQualifiedNameList(vectorTransitionFuncName);
+            vectorTransitionFuncList = FuncnameGetCandidates(qualVectorTransitionFuncName,
+                                                             argumentCount, NIL,
+                                                             false, false);
+
+            if (vectorTransitionFuncList != NULL) {
+                Oid functionOid = vectorTransitionFuncList->oid;
+                fmgr_info(functionOid, &peraggstate->transfn);
+            }
+        }
+        if (fcinfo.argnull[0] != 0) {
+            // no array set
             fcinfo.arg[1] = PointerGetDatum(columnData);
             fcinfo.arg[2] = PointerGetDatum(&rowCount);
             fcinfo.arg[3] = PointerGetDatum(&blockRowCount);
         }
-
-//        ArrayIterator arrIt = array_create_iterator((ArrayType *) fcinfo.arg[0], 0);
-//        Datum value;
-//        bool isNull;
-//        while (array_iterate(arrIt, &value, &isNull)) {
-//            char *data = DatumGetCString(value);
-//        };
 
         /* we can apply the transition function immediately */
         advance_transition_function_vectorized(aggstate, peraggstate,
@@ -1414,7 +1428,7 @@ advance_transition_function_vectorized(AggState *aggstate, AggStatePerAgg peragg
         fcinfo->argnull[0] = pergroupstate->transValueIsNull;
         newVal = FunctionCallInvoke(fcinfo);
     } else {
-        // already in array format
+        // already in array format or sum of array
         newVal = fcinfo->arg[0];
     }
 

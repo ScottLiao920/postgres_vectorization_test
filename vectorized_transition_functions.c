@@ -18,6 +18,8 @@
 
 Datum int4_sum_vec(PG_FUNCTION_ARGS);
 
+Datum enc_int4_sum_vec(PG_FUNCTION_ARGS);
+
 Datum int8_sum_vec(PG_FUNCTION_ARGS);
 
 Datum int4_avg_accum_vec(PG_FUNCTION_ARGS);
@@ -37,6 +39,8 @@ Datum float4_accum_vec(PG_FUNCTION_ARGS);
 Datum float8_accum_vec(PG_FUNCTION_ARGS);
 
 PG_FUNCTION_INFO_V1(int4_sum_vec);
+
+PG_FUNCTION_INFO_V1(enc_int4_sum_vec);
 
 PG_FUNCTION_INFO_V1(int8_sum_vec);
 
@@ -148,6 +152,38 @@ int4_sum_vec(PG_FUNCTION_ARGS) {
     PG_RETURN_INT64(newValue);
 }
 
+
+Datum
+enc_int4_sum_vec(PG_FUNCTION_ARGS) {
+    ColumnData *columnData = (ColumnData *) PG_GETARG_POINTER(1);
+    uint32 rowCount = *((uint32 *) PG_GETARG_POINTER(2));
+    uint64 blockRowCount = *((uint64 *) PG_GETARG_POINTER(3));
+    int32 newValue = 0;
+    uint32 i = 0;
+
+    if (PG_ARGISNULL(0)) {
+        newValue = 0;
+    } else {
+        newValue = PG_GETARG_INT64(0);
+    }
+
+    for (i = 0; i < rowCount; i++) {
+        int blockIndex = i / blockRowCount;
+        int rowIndex = i % blockRowCount;
+
+        ColumnBlockData *blockData = columnData->blockDataArray[blockIndex];
+        Datum value = blockData->valueArray[rowIndex];
+        bool exists = blockData->existsArray[rowIndex];
+
+        if (exists) {
+            int tmpInt = pg_atoi((char *) value, sizeof(int32), '\0');
+            newValue = newValue + tmpInt;
+        }
+    }
+    char *newValueString = palloc0(ENC_INT32_LENGTH_B64 - 2);
+    pg_ltoa(newValue, newValueString);
+    PG_RETURN_CSTRING(newValueString);
+}
 
 Datum
 int8_sum_vec(PG_FUNCTION_ARGS) {
