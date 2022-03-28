@@ -1383,43 +1383,19 @@ advance_aggregates_vectorized(AggState *aggstate, AggStatePerGroup pergroup) {
             }
             else if (dec != 0) {
                 // a block of data
-                char *dec_data = palloc0(dataLen * 2);
-                int resp, dec_len;
-                resp = enc_text_decrypt_n_decompress(data, dataLen, dec_data, 2 * dataLen);
-                dec_len = (resp >> 4);
-                resp -= (dec_len << 4);
-                sgxErrorHandler(resp);
-                bool dataByVal = readState->tupleDescriptor->attrs[columnIndex]->attbyval;
-                int dataTypeLen = readState->tupleDescriptor->attrs[columnIndex]->attlen;
-                char dataTypeAlign = readState->tupleDescriptor->attrs[columnIndex]->attalign;
-                uint currentDatumDataOffset = 0;
-                for (uint i = 0; i < rowCount; i++) {
-                    char *currentDatumDataPointer = dec_data + currentDatumDataOffset;
-                    Datum curData = fetch_att(currentDatumDataPointer, dataTypeLen, dataByVal);
-                    currentDatumDataOffset = att_addlength_datum(currentDatumDataOffset,
-                                                                 dataTypeLen,
-                                                                 currentDatumDataPointer);
-                    currentDatumDataOffset = att_align_nominal(currentDatumDataOffset,
-                                                               dataTypeAlign);
-                    int curDataInt = pg_atoi(currentDatumDataPointer, sizeof(int32), '\0');
-                    if (fcinfo.argnull[0] == 0) {
-                        fcinfo.arg[0] += curDataInt;
-                    }
-                    else {
-                        fcinfo.arg[0] = curDataInt;
-                        fcinfo.argnull[0] = 0;
-                    }
-                }
-                peraggstate->finalfn.fn_oid = InvalidOid;
+                qualVectorTransitionFuncName =
+                        stringToQualifiedNameList("pg_enc_int_sum_bulk");
+                vectorTransitionFuncList = FuncnameGetCandidates(qualVectorTransitionFuncName,
+                                                                 1, NIL,
+                                                                 false, false);
+                Oid functionOid = vectorTransitionFuncList->oid;
+                fmgr_info(functionOid, &peraggstate->transfn);
                 peraggstate->finalfn_oid = InvalidOid;
-                peraggstate->finalfn.fn_extra = NULL;
-                peraggstate->finalfn.fn_mcxt = CurrentMemoryContext;
-                peraggstate->finalfn.fn_expr = NULL;
-                peraggstate->transfn.fn_oid = InvalidOid;
-                peraggstate->transfn_oid = InvalidOid;
-                peraggstate->transfn.fn_extra = NULL;
-                peraggstate->transfn.fn_mcxt = CurrentMemoryContext;
-                peraggstate->transfn.fn_expr = NULL;
+                pergroupstate->transValue = PointerGetDatum(palloc0(dataLen + sizeof(int)));
+                memcpy(DatumGetPointer(pergroupstate->transValue), &dataLen, sizeof(int));
+                memcpy(DatumGetPointer(pergroupstate->transValue) + sizeof(int), data, dataLen);
+                pergroupstate->transValueIsNull = false;
+                peraggstate->transtypeLen = peraggstate->resulttypeLen;
             }
             else {
                 // plain data from an encrypted column, manually set the transfn_oid and finalfn_oid
@@ -1430,11 +1406,7 @@ advance_aggregates_vectorized(AggState *aggstate, AggStatePerGroup pergroup) {
                                                                  false, false);
                 Oid functionOid = vectorTransitionFuncList->oid;
                 fmgr_info(functionOid, &peraggstate->transfn);
-                peraggstate->finalfn.fn_oid = InvalidOid;
                 peraggstate->finalfn_oid = InvalidOid;
-                peraggstate->finalfn.fn_extra = NULL;
-                peraggstate->finalfn.fn_mcxt = CurrentMemoryContext;
-                peraggstate->finalfn.fn_expr = NULL;
             }
             ReleaseSysCache(datumType);
         }
