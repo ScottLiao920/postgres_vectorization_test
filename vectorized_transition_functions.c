@@ -132,7 +132,8 @@ int4_sum_vec(PG_FUNCTION_ARGS) {
 
     if (PG_ARGISNULL(0)) {
         newValue = 0;
-    } else {
+    }
+    else {
         newValue = PG_GETARG_INT64(0);
     }
 
@@ -163,7 +164,8 @@ enc_int4_sum_vec(PG_FUNCTION_ARGS) {
 
     if (PG_ARGISNULL(0)) {
         newValue = 0;
-    } else {
+    }
+    else {
         newValue = PG_GETARG_INT64(0);
     }
 
@@ -195,7 +197,8 @@ int8_sum_vec(PG_FUNCTION_ARGS) {
 
     if (PG_ARGISNULL(0)) {
         newValue = DirectFunctionCall1(int8_numeric, Int64GetDatum(0));
-    } else {
+    }
+    else {
         newValue = PG_GETARG_DATUM(0);
     }
 
@@ -339,7 +342,8 @@ float4pl_vec(PG_FUNCTION_ARGS) {
 
     if (PG_ARGISNULL(0)) {
         newValue = 0.0;
-    } else {
+    }
+    else {
         newValue = PG_GETARG_FLOAT4(0);
     }
 
@@ -370,7 +374,8 @@ float8pl_vec(PG_FUNCTION_ARGS) {
 
     if (PG_ARGISNULL(0)) {
         newValue = 0.0;
-    } else {
+    }
+    else {
         newValue = PG_GETARG_FLOAT8(0);
     }
 

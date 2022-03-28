@@ -415,7 +415,8 @@ process_ordered_aggregate_single(AggState *aggstate,
             /* equal to prior, so forget this one */
             if (!peraggstate->inputtypeByVal && !*isNull)
                 pfree(DatumGetPointer(*newVal));
-        } else {
+        }
+        else {
             advance_transition_function(aggstate, peraggstate, pergroupstate,
                                         &fcinfo);
             /* forget the old value, if any */
@@ -644,11 +645,13 @@ finalize_aggregate(AggState *aggstate,
             /* don't call a strict function with NULL inputs */
             *resultVal = (Datum) 0;
             *resultIsNull = true;
-        } else {
+        }
+        else {
             *resultVal = FunctionCallInvoke(&fcinfo);
             *resultIsNull = fcinfo.isnull;
         }
-    } else {
+    }
+    else {
         *resultVal = pergroupstate->transValue;
         *resultIsNull = pergroupstate->transValueIsNull;
     }
@@ -710,9 +713,11 @@ vectorized_ExecutorRun(QueryDesc *queryDesc,
 
             if (strncmp(aggregateFunctionName, "count", NAMEDATALEN) == 0) {
                 CurrentVectorizedAggType = VAT_GROUP_BY_COUNT;
-            } else if (strncmp(aggregateFunctionName, "sum", NAMEDATALEN) == 0) {
+            }
+            else if (strncmp(aggregateFunctionName, "sum", NAMEDATALEN) == 0) {
                 CurrentVectorizedAggType = VAT_GROUP_BY_SUM;
-            } else {
+            }
+            else {
                 ereport(ERROR, (errmsg("vectorization unsupported for \"%s\" "
                                        "group by", aggregateFunctionName)));
             }
@@ -803,7 +808,8 @@ vectorized_ExecutorRun(QueryDesc *queryDesc,
         }
 
         MemoryContextSwitchTo(oldcontext);
-    } else {
+    }
+    else {
         standard_ExecutorRun(queryDesc, direction, count);
     }
 
@@ -954,7 +960,8 @@ ExecAggVectorized(AggState *node) {
     /* Dispatch based on strategy */
     if (((Agg *) node->ss.ps.plan)->aggstrategy == AGG_HASHED) {
         return agg_retrieve_hash_vectorized(node);
-    } else {
+    }
+    else {
         return agg_retrieve_direct_vectorized(node);
     }
 }
@@ -1071,15 +1078,18 @@ agg_retrieve_hash_vectorized(AggState *aggstate) {
                                     DirectFunctionCall2(float8pl,
                                                         aggregationHashEntry->value,
                                                         value);
-                        } else if (aggregateColumnType == INT4OID) {
+                        }
+                        else if (aggregateColumnType == INT4OID) {
                             aggregationHashEntry->value =
                                     aggregationHashEntry->value + value;
-                        } else {
+                        }
+                        else {
                             ereport(ERROR, (errmsg("unsupported column type: %d "
                                                    "for vectorized sum() group by",
                                                    aggregateColumnType)));
                         }
-                    } else {
+                    }
+                    else {
                         aggregationHashEntry->key =
                                 datumCopy(key, keyTypeCacheEntry->typbyval,
                                           keyTypeCacheEntry->typlen);
@@ -1088,10 +1098,12 @@ agg_retrieve_hash_vectorized(AggState *aggstate) {
                                 datumCopy(value, valueTypeCacheEntry->typbyval,
                                           valueTypeCacheEntry->typlen);
                     }
-                } else if (CurrentVectorizedAggType == VAT_GROUP_BY_COUNT) {
+                }
+                else if (CurrentVectorizedAggType == VAT_GROUP_BY_COUNT) {
                     if (handleFound) {
                         aggregationHashEntry->value = aggregationHashEntry->value + 1;
-                    } else {
+                    }
+                    else {
                         aggregationHashEntry->key =
                                 datumCopy(key, keyTypeCacheEntry->typbyval,
                                           keyTypeCacheEntry->typlen);
@@ -1134,7 +1146,8 @@ agg_retrieve_hash_vectorized(AggState *aggstate) {
         }
 
         ExecStoreVirtualTuple(resultSlot);
-    } else {
+    }
+    else {
         hash_destroy(CurrentAggregationHash);
         CurrentAggregationHash = NULL;
     }
@@ -1193,7 +1206,8 @@ agg_retrieve_direct_vectorized(AggState *aggstate) {
          * comparisons (in group mode) and for projection.
          */
         aggstate->grp_firstTuple = ExecCopySlotTuple(outerslot);
-    } else {
+    }
+    else {
         aggstate->agg_done = true;
     }
 
@@ -1258,7 +1272,8 @@ agg_retrieve_direct_vectorized(AggState *aggstate) {
         if (peraggstate->numSortCols > 0) {
             if (peraggstate->numInputs == 1) {
                 process_ordered_aggregate_single(aggstate, peraggstate, pergroupstate);
-            } else {
+            }
+            else {
                 process_ordered_aggregate_multi(aggstate, peraggstate, pergroupstate);
             }
         }
@@ -1347,8 +1362,11 @@ advance_aggregates_vectorized(AggState *aggstate, AggStatePerGroup pergroup) {
             Type datumType = typeidType(readState->tupleDescriptor->attrs[columnIndex]->atttypid);
             char *data = DatumGetCString(columnData->blockDataArray[0]->valueArray[0]);
             size_t dataLen = strlen(data);
+            BYTE *tmpPtr = palloc0(dataLen * 2);
+            int dec = FromBase64Fast_C(data, dataLen, tmpPtr, 2 * dataLen);
+            pfree(tmpPtr);
             // compare with ENC_INT32_LENGTH_B64 - 1 here because strlen doesn't count null terminator
-            if (dataLen == ENC_INT32_LENGTH_B64 - 1) {
+            if (dataLen == ENC_INT32_LENGTH_B64 - 1 && dec != 0) {
                 ArrayType *array = construct_empty_array(typeTypeId(datumType));
                 for (uint i = 0; i < rowCount; i++) {
                     // if it's an encrypted data type, no need array_append alr, just use the value array
@@ -1362,7 +1380,48 @@ advance_aggregates_vectorized(AggState *aggstate, AggStatePerGroup pergroup) {
                 }
                 fcinfo.arg[0] = PointerGetDatum(array);
                 fcinfo.argnull[0] = 0;
-            } else {
+            }
+            else if (dec != 0) {
+                // a block of data
+                char *dec_data = palloc0(dataLen * 2);
+                int resp, dec_len;
+                resp = enc_text_decrypt_n_decompress(data, dataLen, dec_data, 2 * dataLen);
+                dec_len = (resp >> 4);
+                resp -= (dec_len << 4);
+                sgxErrorHandler(resp);
+                bool dataByVal = readState->tupleDescriptor->attrs[columnIndex]->attbyval;
+                int dataTypeLen = readState->tupleDescriptor->attrs[columnIndex]->attlen;
+                char dataTypeAlign = readState->tupleDescriptor->attrs[columnIndex]->attalign;
+                uint currentDatumDataOffset = 0;
+                for (uint i = 0; i < rowCount; i++) {
+                    char *currentDatumDataPointer = dec_data + currentDatumDataOffset;
+                    Datum curData = fetch_att(currentDatumDataPointer, dataTypeLen, dataByVal);
+                    currentDatumDataOffset = att_addlength_datum(currentDatumDataOffset,
+                                                                 dataTypeLen,
+                                                                 currentDatumDataPointer);
+                    currentDatumDataOffset = att_align_nominal(currentDatumDataOffset,
+                                                               dataTypeAlign);
+                    int curDataInt = pg_atoi(currentDatumDataPointer, sizeof(int32), '\0');
+                    if (fcinfo.argnull[0] == 0) {
+                        fcinfo.arg[0] += curDataInt;
+                    }
+                    else {
+                        fcinfo.arg[0] = curDataInt;
+                        fcinfo.argnull[0] = 0;
+                    }
+                }
+                peraggstate->finalfn.fn_oid = InvalidOid;
+                peraggstate->finalfn_oid = InvalidOid;
+                peraggstate->finalfn.fn_extra = NULL;
+                peraggstate->finalfn.fn_mcxt = CurrentMemoryContext;
+                peraggstate->finalfn.fn_expr = NULL;
+                peraggstate->transfn.fn_oid = InvalidOid;
+                peraggstate->transfn_oid = InvalidOid;
+                peraggstate->transfn.fn_extra = NULL;
+                peraggstate->transfn.fn_mcxt = CurrentMemoryContext;
+                peraggstate->transfn.fn_expr = NULL;
+            }
+            else {
                 // plain data from an encrypted column, manually set the transfn_oid and finalfn_oid
                 qualVectorTransitionFuncName =
                         stringToQualifiedNameList("enc_int4_sum_vec");
@@ -1378,7 +1437,8 @@ advance_aggregates_vectorized(AggState *aggstate, AggStatePerGroup pergroup) {
                 peraggstate->finalfn.fn_expr = NULL;
             }
             ReleaseSysCache(datumType);
-        } else {
+        }
+        else {
             qualVectorTransitionFuncName =
                     stringToQualifiedNameList(vectorTransitionFuncName);
             vectorTransitionFuncList = FuncnameGetCandidates(qualVectorTransitionFuncName,
@@ -1427,7 +1487,8 @@ advance_transition_function_vectorized(AggState *aggstate, AggStatePerAgg peragg
         fcinfo->arg[0] = pergroupstate->transValue;
         fcinfo->argnull[0] = pergroupstate->transValueIsNull;
         newVal = FunctionCallInvoke(fcinfo);
-    } else {
+    }
+    else {
         // already in array format or sum of array
         newVal = fcinfo->arg[0];
     }

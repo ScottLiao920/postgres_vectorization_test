@@ -19,6 +19,8 @@
 #include "cstore_metadata_serialization.h"
 
 #include <sys/stat.h>
+#include <parser/parse_type.h>
+#include <utils/syscache.h>
 #include "access/nbtree.h"
 #include "catalog/pg_collation.h"
 #include "commands/defrem.h"
@@ -114,7 +116,8 @@ CStoreBeginWrite(const char *filename, CompressionType compressionType,
         tableFooter = palloc0(sizeof(TableFooter));
         tableFooter->blockRowCount = blockRowCount;
         tableFooter->stripeMetadataList = NIL;
-    } else {
+    }
+    else {
         tableFile = AllocateFile(filename, "r+");
         if (tableFile == NULL) {
             ereport(ERROR, (errcode_for_file_access(),
@@ -228,7 +231,8 @@ CStoreWriteRow(TableWriteState *writeState, Datum *columnValues, bool *columnNul
 
         if (columnNulls[columnIndex]) {
             blockData->existsArray[blockRowIndex] = false;
-        } else {
+        }
+        else {
             FmgrInfo *comparisonFunction =
                     writeState->comparisonFunctionArray[columnIndex];
             Form_pg_attribute attributeForm =
@@ -267,7 +271,8 @@ CStoreWriteRow(TableWriteState *writeState, Datum *columnValues, bool *columnNul
          */
         MemoryContextSwitchTo(oldContext);
         AppendStripeMetadata(tableFooter, stripeMetadata);
-    } else {
+    }
+    else {
         MemoryContextSwitchTo(oldContext);
     }
 }
@@ -506,11 +511,13 @@ FlushStripe(TableWriteState *writeState) {
                     valueBuffer->maxlen = maximumLength;
 
                     blockCompressionTypeArray[blockIndex] = COMPRESSION_PG_LZ;
-                } else {
+                }
+                else {
                     pfree(compressedData);
                     blockCompressionTypeArray[blockIndex] = COMPRESSION_NONE;
                 }
-            } else if (compressionType == COMPRESSION_LZ4) {
+            }
+            else if (compressionType == COMPRESSION_LZ4) {
                 int compressed_bytes = 0; // for lz4 compression
                 size_t maximumLength = LZ4_compressBound(valueBuffer->len) + CSTORE_COMPRESS_HDRSZ_LZ4;
                 compressedData = palloc0(maximumLength);
@@ -527,41 +534,55 @@ FlushStripe(TableWriteState *writeState) {
                     valueBuffer->len = compressed_bytes + CSTORE_COMPRESS_HDRSZ_LZ4;
                     valueBuffer->maxlen = maximumLength;
                     blockCompressionTypeArray[blockIndex] = COMPRESSION_LZ4;
-                } else {
-                    pfree(compressedData);
-                    blockCompressionTypeArray[blockIndex] = COMPRESSION_NONE;
                 }
-            } else if (compressionType == COMPRESSION_ENC_LZ4) {
-                int enc_len = 0, resp = 0; // for lz4 compression
-                compressedData = palloc0(valueBuffer->maxlen);
-                BYTE *tmpPtr = palloc0(sizeof(BYTE));
-                int actualCompressionType = compressionType;
-                if (FromBase64Fast_C((const BYTE *) valueBuffer->data, ENC_INT32_LENGTH_B64 - 1,
-                                     tmpPtr, ENC_INT32_LENGTH) == 0) {
-                    // feeding plain data into encrypted column
-                    resp = enc_text_compress_n_encrypt(valueBuffer->data, valueBuffer->len, (char *) compressedData);
-                    enc_len = (resp >> 4);
-                    resp -= (enc_len << 4);
-                } else {
-                    // feeding encrypted data, no point to compress them
-                    memcpy(compressedData, valueBuffer->data, valueBuffer->len);
-                    enc_len = valueBuffer->len;
-                    resp = 0;
-                    actualCompressionType = COMPRESSION_ENC_NONE; // only encrypted
-                }
-                sgxErrorHandler(resp);
-                if (enc_len > 0) {
-                    pfree(valueBuffer->data);
-                    valueBuffer->data = (char *) compressedData;
-                    valueBuffer->len = enc_len;
-                    blockCompressionTypeArray[blockIndex] = actualCompressionType;
-                } else {
+                else {
                     pfree(compressedData);
                     blockCompressionTypeArray[blockIndex] = COMPRESSION_NONE;
                 }
             }
+            else if (compressionType == COMPRESSION_ENC_LZ4) {
+                int enc_len = 0, resp = 0; // for lz4 compression
+                compressedData = palloc0(valueBuffer->maxlen);
+                Oid curColTypeId = writeState->tupleDescriptor->attrs[columnIndex]->atttypid;
+                Type curColType = typeidType(curColTypeId);
+                char *curColTypeName = typeTypeName(curColType);
+                ReleaseSysCache(curColType);
+                int actualCompressionType = compressionType;
+                if (strncmp(curColTypeName, "enc_", 4) == 0) {
+                    if (valueBuffer->len != (ENC_INT32_LENGTH_B64)) {
+                        // feeding plain data into encrypted column
+                        resp = enc_text_compress_n_encrypt(valueBuffer->data, valueBuffer->len,
+                                                           (char *) compressedData, valueBuffer->maxlen
+                        );
+                        enc_len = (resp >> 4);
+                        resp -= (enc_len << 4);
+                    }
+                    else {
+                        // encrypted data, no need to compress
+                        enc_len = 0;
+                    }
+                    sgxErrorHandler(resp);
+                    if (enc_len > 0) {
+                        pfree(valueBuffer->data);
+                        valueBuffer->data = (char *) compressedData;
+                        valueBuffer->len = enc_len;
+                        blockCompressionTypeArray[blockIndex] = actualCompressionType;
+                    }
+                    else {
+                        pfree(compressedData);
+                        blockCompressionTypeArray[blockIndex] = COMPRESSION_NONE;
+                    }
+                }
+                else {
+                    // other data columns, use lz4 compression
+                    columnIndex -= 1;
+                    compressionType = COMPRESSION_LZ4;
+                    break;
+                }
+            }
         }
     }
+
 
     /* update buffer sizes and positions in stripe skip list */
     for (columnIndex = 0; columnIndex < columnCount; columnIndex++) {
@@ -849,11 +870,13 @@ SerializeDatumArray(Datum *datumArray, bool *existsArray, uint32 datumCount,
         if (datumTypeLength > 0) {
             if (datumTypeByValue) {
                 store_att_byval(currentDatumDataPointer, datum, datumTypeLength);
-            } else {
+            }
+            else {
                 memcpy(currentDatumDataPointer, DatumGetPointer(datum),
                        datumTypeLength);
             }
-        } else {
+        }
+        else {
             Assert(!datumTypeByValue);
             memcpy(currentDatumDataPointer, DatumGetPointer(datum), datumLength);
         }
@@ -889,7 +912,8 @@ UpdateBlockSkipNodeMinMax(ColumnBlockSkipNode *blockSkipNode, Datum columnValue,
     if (!hasMinMax) {
         currentMinimum = DatumCopy(columnValue, columnTypeByValue, columnTypeLength);
         currentMaximum = DatumCopy(columnValue, columnTypeByValue, columnTypeLength);
-    } else {
+    }
+    else {
         Datum minimumComparisonDatum = FunctionCall2Coll(comparisonFunction,
                                                          columnCollation, columnValue,
                                                          previousMinimum);
@@ -901,13 +925,15 @@ UpdateBlockSkipNodeMinMax(ColumnBlockSkipNode *blockSkipNode, Datum columnValue,
 
         if (minimumComparison < 0) {
             currentMinimum = DatumCopy(columnValue, columnTypeByValue, columnTypeLength);
-        } else {
+        }
+        else {
             currentMinimum = previousMinimum;
         }
 
         if (maximumComparison > 0) {
             currentMaximum = DatumCopy(columnValue, columnTypeByValue, columnTypeLength);
-        } else {
+        }
+        else {
             currentMaximum = previousMaximum;
         }
     }
@@ -925,7 +951,8 @@ DatumCopy(Datum datum, bool datumTypeByValue, int datumTypeLength) {
 
     if (datumTypeByValue) {
         datumCopy = datum;
-    } else {
+    }
+    else {
         uint32 datumLength = att_addlength_datum(0, datumTypeLength, datum);
         char *datumData = palloc0(datumLength);
         memcpy(datumData, DatumGetPointer(datum), datumLength);

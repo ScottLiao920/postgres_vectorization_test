@@ -183,7 +183,8 @@ cstore_ddl_event_end_trigger(PG_FUNCTION_ARGS) {
         if (strncmp(foreignWrapperName, CSTORE_FDW_NAME, NAMEDATALEN) == 0) {
             CreateCStoreDatabaseDirectory(MyDatabaseId);
         }
-    } else if (nodeTag(parseTree) == T_CreateForeignTableStmt) {
+    }
+    else if (nodeTag(parseTree) == T_CreateForeignTableStmt) {
         CreateForeignTableStmt *createStatement = (CreateForeignTableStmt *) parseTree;
 
         Oid relationId = RangeVarGetRelid(createStatement->base.relation,
@@ -273,10 +274,12 @@ CStoreProcessUtility(Node *parseTree, const char *queryString,
             snprintf(completionTag, COMPLETION_TAG_BUFSIZE,
                      "COPY " UINT64_FORMAT, processed);
         }
-    } else if (PreviousProcessUtilityHook != NULL) {
+    }
+    else if (PreviousProcessUtilityHook != NULL) {
         PreviousProcessUtilityHook(parseTree, queryString, context, paramListInfo,
                                    destReceiver, completionTag);
-    } else {
+    }
+    else {
         standard_ProcessUtility(parseTree, queryString, context, paramListInfo,
                                 destReceiver, completionTag);
     }
@@ -354,7 +357,8 @@ CopyIntoCStoreTable(const CopyStmt *copyStatement, const char *queryString) {
                     errmsg("must be superuser to COPY to or from a program"),
                     errhint("Anyone can COPY to stdout or from stdin. "
                             "psql's \\copy command also works for anyone.")));
-        } else {
+        }
+        else {
             ereport(ERROR, (errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
                     errmsg("must be superuser to COPY to or from a file"),
                     errhint("Anyone can COPY to stdout or from stdin. "
@@ -472,10 +476,12 @@ DirectoryExists(StringInfo directoryName) {
                     errhint("You need to remove or rename the file \"%s\".",
                             directoryName->data)));
         }
-    } else {
+    }
+    else {
         if (errno == ENOENT) {
             directoryExists = false;
-        } else {
+        }
+        else {
             ereport(ERROR, (errcode_for_file_access(),
                     errmsg("could not stat directory \"%s\": %m",
                            directoryName->data)));
@@ -643,11 +649,14 @@ cstore_fdw_validator(PG_FUNCTION_ARGS) {
 
         if (strncmp(optionName, OPTION_NAME_FILENAME, NAMEDATALEN) == 0) {
             filename = defGetString(optionDef);
-        } else if (strncmp(optionName, OPTION_NAME_COMPRESSION_TYPE, NAMEDATALEN) == 0) {
+        }
+        else if (strncmp(optionName, OPTION_NAME_COMPRESSION_TYPE, NAMEDATALEN) == 0) {
             compressionTypeString = defGetString(optionDef);
-        } else if (strncmp(optionName, OPTION_NAME_STRIPE_ROW_COUNT, NAMEDATALEN) == 0) {
+        }
+        else if (strncmp(optionName, OPTION_NAME_STRIPE_ROW_COUNT, NAMEDATALEN) == 0) {
             stripeRowCountString = defGetString(optionDef);
-        } else if (strncmp(optionName, OPTION_NAME_BLOCK_ROW_COUNT, NAMEDATALEN) == 0) {
+        }
+        else if (strncmp(optionName, OPTION_NAME_BLOCK_ROW_COUNT, NAMEDATALEN) == 0) {
             blockRowCountString = defGetString(optionDef);
         }
     }
@@ -856,9 +865,11 @@ ParseCompressionType(const char *compressionTypeString) {
 
     if (strncmp(compressionTypeString, COMPRESSION_STRING_NONE, NAMEDATALEN) == 0) {
         compressionType = COMPRESSION_NONE;
-    } else if (strncmp(compressionTypeString, COMPRESSION_STRING_PG_LZ, NAMEDATALEN) == 0) {
+    }
+    else if (strncmp(compressionTypeString, COMPRESSION_STRING_PG_LZ, NAMEDATALEN) == 0) {
         compressionType = COMPRESSION_PG_LZ;
-    } else if (strncmp(compressionTypeString, COMPRESSION_STRING_LZ4, NAMEDATALEN) == 0) {
+    }
+    else if (strncmp(compressionTypeString, COMPRESSION_STRING_LZ4, NAMEDATALEN) == 0) {
         compressionType = COMPRESSION_LZ4;
     }
     else if (strncmp(compressionTypeString, COMPRESSION_STRING_ENC_LZ4, NAMEDATALEN) == 0) {
@@ -1005,7 +1016,8 @@ TupleCountEstimate(RelOptInfo *baserel, const char *filename) {
         BlockNumber pageCount = PageCount(filename);
 
         tupleCountEstimate = clamp_row_est(tupleDensity * (double) pageCount);
-    } else {
+    }
+    else {
         /*
          * Otherwise we have to fake it. We back into this estimate using the
          * planner's idea of relation width, which may be inaccurate. For better
@@ -1348,7 +1360,8 @@ CStoreAcquireSampleRows(Relation relation, int logLevel,
             sampleRows[sampleRowCount] = heap_form_tuple(tupleDescriptor, columnValues,
                                                          columnNulls);
             sampleRowCount++;
-        } else {
+        }
+        else {
             /*
              * t in Vitter's paper is the number of records already processed.
              * If we need to compute a new S value, we must use the "not yet

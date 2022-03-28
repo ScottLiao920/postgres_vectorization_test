@@ -76,7 +76,7 @@ SerializeTableFooter(TableFooter *tableFooter) {
 
     List *stripeMetadataList = tableFooter->stripeMetadataList;
     uint32 stripeCount = list_length(stripeMetadataList);
-    stripeMetadataArray = palloc0(stripeCount * sizeof(Protobuf__StripeMetadata * ));
+    stripeMetadataArray = palloc0(stripeCount * sizeof(Protobuf__StripeMetadata *));
 
     foreach(stripeMetadataCell, stripeMetadataList) {
         StripeMetadata *stripeMetadata = lfirst(stripeMetadataCell);
@@ -163,7 +163,7 @@ SerializeColumnSkipList(ColumnBlockSkipNode *blockSkipNodeArray, uint32 blockCou
     uint32 blockSkipListSize = 0;
 
     protobufBlockSkipNodeArray = palloc0(blockCount *
-                                         sizeof(Protobuf__ColumnBlockSkipNode * ));
+                                         sizeof(Protobuf__ColumnBlockSkipNode *));
     for (blockIndex = 0; blockIndex < blockCount; blockIndex++) {
         ColumnBlockSkipNode blockSkipNode = blockSkipNodeArray[blockIndex];
         Protobuf__ColumnBlockSkipNode *protobufBlockSkipNode = NULL;
@@ -235,8 +235,9 @@ DeserializePostScript(StringInfo buffer, uint64 *tableFooterLength) {
         protobufPostScript->versionminor > CSTORE_VERSION_MINOR) {
         ereport(ERROR, (errmsg("could not unpack column store"),
                 errdetail("invalid column store version number")));
-    } else if (strncmp(protobufPostScript->magicnumber, CSTORE_MAGIC_NUMBER,
-                       NAMEDATALEN) != 0) {
+    }
+    else if (strncmp(protobufPostScript->magicnumber, CSTORE_MAGIC_NUMBER,
+                     NAMEDATALEN) != 0) {
         ereport(ERROR, (errmsg("could not unpack column store"),
                 errdetail("invalid magic number")));
     }
@@ -270,8 +271,9 @@ DeserializeTableFooter(StringInfo buffer) {
     if (!protobufTableFooter->has_blockrowcount) {
         ereport(ERROR, (errmsg("could not unpack column store"),
                 errdetail("missing required table footer metadata fields")));
-    } else if (protobufTableFooter->blockrowcount < BLOCK_ROW_COUNT_MINIMUM ||
-               protobufTableFooter->blockrowcount > BLOCK_ROW_COUNT_MAXIMUM) {
+    }
+    else if (protobufTableFooter->blockrowcount < BLOCK_ROW_COUNT_MINIMUM ||
+             protobufTableFooter->blockrowcount > BLOCK_ROW_COUNT_MAXIMUM) {
         ereport(ERROR, (errmsg("could not unpack column store"),
                 errdetail("invalid block row count")));
     }
@@ -475,10 +477,12 @@ DatumToProtobufBinary(Datum datum, bool datumTypeByValue, int datumTypeLength) {
     if (datumTypeLength > 0) {
         if (datumTypeByValue) {
             store_att_byval(datumBuffer, datum, datumTypeLength);
-        } else {
+        }
+        else {
             memcpy(datumBuffer, DatumGetPointer(datum), datumTypeLength);
         }
-    } else {
+    }
+    else {
         memcpy(datumBuffer, DatumGetPointer(datum), datumLength);
     }
 

@@ -844,7 +844,8 @@ DeserializeBoolArray(StringInfo boolArrayBuffer, uint32 boolArrayLength) {
         uint8 shiftedBit = (boolArrayBuffer->data[byteIndex] & bitmask);
         if (shiftedBit == 0) {
             boolArray[boolArrayIndex] = false;
-        } else {
+        }
+        else {
             boolArray[boolArrayIndex] = true;
         }
     }
@@ -884,9 +885,9 @@ DeserializeDatumArray(StringInfo datumBuffer, bool *existsArray, uint32 datumCou
         currentDatumDataOffset = att_align_nominal(currentDatumDataOffset,
                                                    datumTypeAlign);
 
-        if (currentDatumDataOffset > datumBuffer->len) {
-            ereport(ERROR, (errmsg("insufficient data left in datum buffer")));
-        }
+//        if (currentDatumDataOffset > datumBuffer->len && (datumIndex + 1) != datumCount) {
+//            ereport(ERROR, (errmsg("insufficient data left in datum buffer")));
+//        }
     }
 
     return datumArray;
@@ -963,10 +964,14 @@ DecompressBuffer(StringInfo buffer, CompressionType compressionType) {
     Assert(compressionType == COMPRESSION_NONE || compressionType == COMPRESSION_PG_LZ ||
            compressionType == COMPRESSION_LZ4);
 
-    if (compressionType == COMPRESSION_NONE) {
+    if (compressionType == COMPRESSION_NONE || compressionType == COMPRESSION_ENC_LZ4 ||
+        compressionType == COMPRESSION_ENC_NONE) {
         /* in case of no compression, return buffer */
         decompressedBuffer = buffer;
-    } else if (compressionType == COMPRESSION_PG_LZ) {
+        decompressedBuffer->data[decompressedBuffer->len] = '\0';
+
+    }
+    else if (compressionType == COMPRESSION_PG_LZ) {
         PGLZ_Header *compressedData = (PGLZ_Header *) buffer->data;
         uint32 compressedDataSize = VARSIZE(compressedData);
         uint32 decompressedDataSize = PGLZ_RAW_SIZE(compressedData);
@@ -985,7 +990,8 @@ DecompressBuffer(StringInfo buffer, CompressionType compressionType) {
         decompressedBuffer->data = decompressedData;
         decompressedBuffer->len = decompressedDataSize;
         decompressedBuffer->maxlen = decompressedDataSize;
-    } else if (compressionType == COMPRESSION_LZ4) {
+    }
+    else if (compressionType == COMPRESSION_LZ4) {
         size_t compressedDataSize = ((LZ4CompressHeader *) (buffer->data))->comp_len;
         int decompressedDataSize_expected = (int) CSTORE_COMPRESS_RAWSIZE_LZ4(buffer->data);
         int decompressedDataSize_real = 0;
@@ -1008,39 +1014,43 @@ DecompressBuffer(StringInfo buffer, CompressionType compressionType) {
         decompressedBuffer->data = decompressedData;
         decompressedBuffer->len = decompressedDataSize_real;
         decompressedBuffer->maxlen = decompressedDataSize_real;
-    } else if (compressionType == COMPRESSION_ENC_LZ4) {
-        char *decompressedData = palloc0(buffer->maxlen);
-        int resp, dec_len;
-        resp = enc_text_decrypt_n_decompress(buffer->data, buffer->len, decompressedData);
-        dec_len = (resp >> 4);
-        resp -= (dec_len << 4);
-        sgxErrorHandler(resp);
-        if (dec_len > 0) {
-            buffer->len = dec_len;
-            decompressedBuffer = palloc0(sizeof(StringInfoData));
-            decompressedBuffer->data = palloc0(sizeof(char) * dec_len);
-            memcpy(decompressedBuffer->data, decompressedData, dec_len);
-            decompressedBuffer->len = dec_len;
-            decompressedBuffer->maxlen = dec_len;
-            pfree(decompressedData);
-        }
-    } else if (compressionType == COMPRESSION_ENC_NONE) {
-        char *decompressedData = palloc0(buffer->maxlen);
-        int resp, dec_len;
-        resp = enc_text_decrypt(buffer->data, buffer->len, decompressedData, buffer->maxlen);
-        dec_len = (resp >> 4);
-        resp -= (dec_len << 4);
-        sgxErrorHandler(resp);
-        if (dec_len > 0) {
-            buffer->len = dec_len;
-            decompressedBuffer = palloc0(sizeof(StringInfoData));
-            decompressedBuffer->data = palloc0(sizeof(char) * dec_len);
-            memcpy(decompressedBuffer->data, decompressedData, dec_len);
-            decompressedBuffer->len = dec_len;
-            decompressedBuffer->maxlen = dec_len;
-            pfree(decompressedData);
-        }
     }
+//        char *decompressedData = palloc0(buffer->maxlen);
+//        int resp, dec_len;
+//        resp = enc_text_decrypt(buffer->data, buffer->len, decompressedData, buffer->maxlen);
+//        dec_len = (resp >> 4);
+//        resp -= (dec_len << 4);
+//        sgxErrorHandler(resp);
+//        if (dec_len > 0) {
+//            buffer->len = dec_len;
+//            decompressedBuffer = palloc0(sizeof(StringInfoData));
+//            decompressedBuffer->data = palloc0(sizeof(char) * dec_len);
+//            memcpy(decompressedBuffer->data, decompressedData, dec_len);
+//            decompressedBuffer->len = dec_len;
+//            decompressedBuffer->maxlen = dec_len;
+//            pfree(decompressedData);
+//        }
+//     else if (compressionType == COMPRESSION_ENC_LZ4) {
+//        char *decompressedData = palloc0(buffer->maxlen);
+//        int resp, dec_len;
+//        resp = enc_text_decrypt_n_decompress(buffer->data, buffer->len, decompressedData);
+//        dec_len = (resp >> 4);
+//        resp -= (dec_len << 4);
+//        sgxErrorHandler(resp);
+//        if (dec_len > 0) {
+//            buffer->
+//                    len = dec_len;
+//            decompressedBuffer = palloc0(sizeof(StringInfoData));
+//            decompressedBuffer->
+//                    data = palloc0(sizeof(char) * dec_len);
+//            memcpy(decompressedBuffer
+//                           ->data, decompressedData, dec_len);
+//            decompressedBuffer->
+//                    len = dec_len;
+//            decompressedBuffer->
+//                    maxlen = dec_len;
+//            pfree(decompressedData);
+//        }
 
     return decompressedBuffer;
 }
