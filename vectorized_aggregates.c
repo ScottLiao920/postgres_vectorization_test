@@ -1391,9 +1391,15 @@ advance_aggregates_vectorized(AggState *aggstate, AggStatePerGroup pergroup) {
                 Oid functionOid = vectorTransitionFuncList->oid;
                 fmgr_info(functionOid, &peraggstate->transfn);
                 peraggstate->finalfn_oid = InvalidOid;
-                pergroupstate->transValue = PointerGetDatum(palloc0(dataLen + sizeof(int)));
-                memcpy(DatumGetPointer(pergroupstate->transValue), &dataLen, sizeof(int));
-                memcpy(DatumGetPointer(pergroupstate->transValue) + sizeof(int), data, dataLen);
+                char *sumBulkInputBuffer = palloc0(dataLen + sizeof(int) + ENC_INT32_LENGTH_B64);
+                memcpy(sumBulkInputBuffer, &dataLen, sizeof(int));
+                if (pergroupstate->transValueIsNull == 0) {
+                    memcpy(sumBulkInputBuffer + sizeof(int), DatumGetPointer(pergroupstate->transValue),
+                           ENC_INT32_LENGTH_B64);
+                    pfree(DatumGetPointer(pergroupstate->transValue));
+                }
+                memcpy(sumBulkInputBuffer + sizeof(int) + ENC_INT32_LENGTH_B64, data, dataLen);
+                pergroupstate->transValue = PointerGetDatum(sumBulkInputBuffer);
                 pergroupstate->transValueIsNull = false;
                 peraggstate->transtypeLen = peraggstate->resulttypeLen;
             }
