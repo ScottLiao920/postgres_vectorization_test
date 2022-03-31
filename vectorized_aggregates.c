@@ -1392,13 +1392,14 @@ advance_aggregates_vectorized(AggState *aggstate, AggStatePerGroup pergroup) {
                 fmgr_info(functionOid, &peraggstate->transfn);
                 peraggstate->finalfn_oid = InvalidOid;
                 char *sumBulkInputBuffer = palloc0(dataLen + sizeof(int) + ENC_INT32_LENGTH_B64);
-                memcpy(sumBulkInputBuffer, &dataLen, sizeof(int));
                 if (pergroupstate->transValueIsNull == 0) {
                     memcpy(sumBulkInputBuffer + sizeof(int), DatumGetPointer(pergroupstate->transValue),
                            ENC_INT32_LENGTH_B64);
                     pfree(DatumGetPointer(pergroupstate->transValue));
                 }
                 memcpy(sumBulkInputBuffer + sizeof(int) + ENC_INT32_LENGTH_B64, data, dataLen);
+                dataLen += ENC_INT32_LENGTH_B64;
+                memcpy(sumBulkInputBuffer, &dataLen, sizeof(int));
                 pergroupstate->transValue = PointerGetDatum(sumBulkInputBuffer);
                 pergroupstate->transValueIsNull = false;
                 peraggstate->transtypeLen = peraggstate->resulttypeLen;
@@ -1482,8 +1483,10 @@ advance_transition_function_vectorized(AggState *aggstate, AggStatePerAgg peragg
         DatumGetPointer(newVal) != DatumGetPointer(pergroupstate->transValue)) {
         if (!fcinfo->isnull) {
             MemoryContextSwitchTo(aggstate->aggcontext);
-            newVal = datumCopy(newVal, peraggstate->transtypeByVal,
-                               peraggstate->transtypeLen);
+            Datum tmpNewVal = datumCopy(newVal, peraggstate->transtypeByVal,
+                                        peraggstate->transtypeLen);
+            pfree((char *) newVal);
+            newVal = tmpNewVal;
         }
         if (!pergroupstate->transValueIsNull) {
             pfree(DatumGetPointer(pergroupstate->transValue));
