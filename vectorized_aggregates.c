@@ -1367,6 +1367,7 @@ advance_aggregates_vectorized(AggState *aggstate, AggStatePerGroup pergroup) {
             pfree(tmpPtr);
             // compare with ENC_INT32_LENGTH_B64 - 1 here because strlen doesn't count null terminator
             if (dataLen == ENC_INT32_LENGTH_B64 - 1 && dec != 0) {
+                // if it's an encrypted data type, no need array_append alr, just use the value array
                 ArrayType *array;
                 int prevLen =0;
                 if (pergroupstate->transValueIsNull == 0) {
@@ -1377,7 +1378,6 @@ advance_aggregates_vectorized(AggState *aggstate, AggStatePerGroup pergroup) {
                     array = construct_empty_array(typeTypeId(datumType));
                 }
                 for (uint i = 0; i < rowCount; i++) {
-                    // if it's an encrypted data type, no need array_append alr, just use the value array
                     int blockIndex = i / blockRowCount;
                     int rowIndex = i % blockRowCount;
                     int arrIndex = (int) i + prevLen;
@@ -1390,7 +1390,7 @@ advance_aggregates_vectorized(AggState *aggstate, AggStatePerGroup pergroup) {
                 fcinfo.argnull[0] = 0;
             }
             else if (dec != 0) {
-                // a block of data
+                // a block of data, need to be treated as a whole
                 qualVectorTransitionFuncName =
                         stringToQualifiedNameList("pg_enc_int_sum_bulk");
                 vectorTransitionFuncList = FuncnameGetCandidates(qualVectorTransitionFuncName,
