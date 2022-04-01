@@ -1367,12 +1367,20 @@ advance_aggregates_vectorized(AggState *aggstate, AggStatePerGroup pergroup) {
             pfree(tmpPtr);
             // compare with ENC_INT32_LENGTH_B64 - 1 here because strlen doesn't count null terminator
             if (dataLen == ENC_INT32_LENGTH_B64 - 1 && dec != 0) {
-                ArrayType *array = construct_empty_array(typeTypeId(datumType));
+                ArrayType *array;
+                int prevLen =0;
+                if (pergroupstate->transValueIsNull == 0) {
+                    array = DatumGetArrayTypeP(pergroupstate->transValue);
+                    prevLen = *ARR_DIMS(array);
+                }
+                else {
+                    array = construct_empty_array(typeTypeId(datumType));
+                }
                 for (uint i = 0; i < rowCount; i++) {
                     // if it's an encrypted data type, no need array_append alr, just use the value array
                     int blockIndex = i / blockRowCount;
                     int rowIndex = i % blockRowCount;
-                    int arrIndex = (int) i;
+                    int arrIndex = (int) i + prevLen;
                     array = array_set(array, 1, &arrIndex, columnData->blockDataArray[blockIndex]->valueArray[rowIndex],
                                       0,
                                       -1, typeLen(datumType), typeByVal(datumType),
